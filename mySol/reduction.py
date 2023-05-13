@@ -1,7 +1,12 @@
 import numpy as np  # linear algebra
+import matplotlib.pyplot as plt # plotting
+import pandas as pd # csv manipulation
 from scipy.spatial.distance import cdist # for pairwise distances kernels
 from scipy.sparse import linalg as LA # for linear algebra
-from scipy.sparse import csr_matrix, identity
+from scipy.sparse import csr_matrix # for sparse matrices
+from sklearn.decomposition import PCA as SklearnPCA # for comparison
+from sklearn.decomposition import KernelPCA as SklearnKernelPCA # for comparison
+from sklearn.preprocessing import KernelCenterer # for centering
 
 
 class PCA(object):
@@ -79,7 +84,7 @@ class PCA(object):
 
 class KernelPCA(object):
 
-    def __init__(self, kernel, gamma=1.0):
+    def __init__(self, kernel, gamma=None):
         """Kernel PCA implementation.
 
         :param kernel: pca kernel {'poly', 'rbf'} possible option.
@@ -98,6 +103,8 @@ class KernelPCA(object):
             self._kernel = self._choose_kernel(kernel)
 
         # gamma coefficient + alpha coefficient
+        if gamma is None:
+            ValueError
         self._gamma = gamma
 
 
@@ -108,23 +115,27 @@ class KernelPCA(object):
         self._check_numb_components(X, numb_components)
 
         # creating kernel matrix
-        K = csr_matrix(self._kernel(X))
+        K = self._kernel(X)
 
         # centering matrix
-        I = csr_matrix(np.identity(m) - np.ones(shape=(m,m))/m)
-        K = I.multiply(K.multiply(I))
+        K = KernelCenterer().fit_transform(K)
+        K = csr_matrix(K)
+        
+        # slow implementation
+        # I = np.ones(shape=(m,m))/m
+        # K  =  K - I @ K - K @ I + I @ K @ I   
 
         # performing svd
-        eigvalues, eigvects= LA.eigsh(K, k=numb_components, which='LM')
-        eigvects = eigvects/ eigvalues
+        eigvalues, eigvects = LA.eigsh(K, k=numb_components, which='LA')
 
-        # sort in ascending order
+
+        # # sort in ascending order
         idx = eigvalues.argsort()[::-1]
         eigvalues = eigvalues[idx]
         eigvects = eigvects[:, idx]
 
-        # project data
-        projection = np.dot(K.toarray(),eigvects)
+        # project data (use shortcut for just projecting)
+        projection = eigvects * np.sqrt(eigvalues)
 
         if eigen:
             return projection, eigvalues
@@ -140,7 +151,7 @@ class KernelPCA(object):
             if X_train is None:
                 X_train = X
             dists = cdist(X, X_train, metric="sqeuclidean")
-            K = np.exp(-0.5 * (dists / self._gamma))
+            K = np.exp( - dists * self._gamma)
             return K
 
         def poly(X, X_train=None):
@@ -148,7 +159,6 @@ class KernelPCA(object):
                 X_train = X
             K = 1. + np.dot(X, X_train.T)
             return np.power(K, self._gamma)
-
 
         kernels = {'gaussian': rbf,
                    'poly': poly}
